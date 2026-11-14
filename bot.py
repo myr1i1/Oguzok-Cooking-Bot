@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+from dotenv import load_dotenv
 
 from models import load_recipes
 from keyboards import main_menu
@@ -10,11 +11,18 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from dotenv import load_dotenv
+from aiogram.client.session.aiohttp import AiohttpSession
 
 
 load_dotenv()
-bot = Bot(token=os.getenv("BOT_TOKEN"))
+
+proxy = os.getenv("PROXY")
+if proxy:
+    session = AiohttpSession(proxy=proxy)
+else:
+    session = None
+bot = Bot(token=os.getenv("BOT_TOKEN"), session=session)
+
 dp = Dispatcher()
 recipes = load_recipes()
 class Search(StatesGroup):

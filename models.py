@@ -1,4 +1,8 @@
 import json
+import os
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class Recipe:
@@ -35,7 +39,7 @@ class Recipe:
         )
 
 
-def load_recipes(path="recipes.json"):
+def load_recipes(path=os.path.join(BASE_DIR, "recipes.json")):
     with open(path, encoding="utf-8") as file:
         data = json.load(file)
 
