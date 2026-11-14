@@ -8,6 +8,8 @@ from keyboards import main_menu
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from dotenv import load_dotenv
 
 
@@ -15,6 +17,8 @@ load_dotenv()
 bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
 recipes = load_recipes()
+class Search(StatesGroup):
+    waiting_ingredients = State()
 
 
 @dp.message(CommandStart())
@@ -25,6 +29,38 @@ async def start(message: Message):
         reply_markup=main_menu,
         )
 
+
+@dp.message(F.text == "🔍 По продуктам")
+async def ask_ingredients(message: Message, state: FSMContext):
+    await state.set_state(Search.waiting_ingredients)
+    await message.answer("Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры")
+
+
+@dp.message(Search.waiting_ingredients, F.text)
+async def find_by_ingredients(message: Message, state: FSMContext):
+    await state.clear()
+
+    user_ingredients = []
+    for item in message.text.split(","):
+        user_ingredients.append(item.strip().lower())
+
+    found = []
+    for recipe in recipes:
+        count = recipe.match(user_ingredients)
+        if count > 0:
+            found.append((count, recipe))
+
+    if not found:
+        await message.answer("Из этого даже я ничего не сварю. Сходи в магаз")
+        return
+
+    found.sort(key=lambda pair: pair[0], reverse=True)
+
+    for count, recipe in found[:3]:
+        await message.answer(
+            f"⊹ Совпало {count} из {len(recipe.ingredients)}\n\n"
+            + recipe.beauty_text()
+        )
 
 
 @dp.message(F.text == "🎲 Рандом")

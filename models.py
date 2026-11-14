@@ -4,7 +4,7 @@ import json
 class Recipe:
     def __init__(self, name, ingredients, steps, time, equipment, nutrition, tags):
         self.name = str(name)
-        self.ingredients = list(ingredients)
+        self.ingredients = ingredients
         self.steps = list(steps)
         self.time = int(time)
         self.equipment = str(equipment)
@@ -13,8 +13,8 @@ class Recipe:
 
     def match(self, own_ingredients):
         matches = 0
-        for ingr in own_ingredients.lower():
-            if ingr in self.ingredients.lower():
+        for ingr in own_ingredients:
+            if ingr.lower() in self.ingredients:
                 matches += 1
         return matches
 
