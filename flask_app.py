@@ -5,6 +5,7 @@ from flask import Flask, abort, request
 
 from bot import bot, dp
 
+
 app = Flask(__name__)
 
 loop = asyncio.new_event_loop()
