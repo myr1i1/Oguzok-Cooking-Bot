@@ -8,7 +8,9 @@ Telegram-бот для тех, у кого в холодильнике яйца,
  
 **Попробовать: [@oguzokcooking_bot](https://t.me/oguzokcooking_bot)**
  
-<!-- сюда скрины или гифку: docs/demo.gif -->
+![поиск по продуктам](docs/products.png)
+![рандомный рецепт](docs/random.png)
+![ответ на стикер](docs/sticker.png)
  
 ---
  
