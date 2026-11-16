@@ -88,6 +88,17 @@ async def pp_recipe(message: Message):
     await message.answer(recipe.beauty_text())
 
 
+@dp.message(F.text == "🍰 Сладкое")
+async def sweet_recipe(message: Message):
+    sweet_recipes = []
+    for recipe in recipes:
+        if "сладкое" in recipe.tags:
+            sweet_recipes.append(recipe)
+
+    recipe = random.choice(sweet_recipes)
+    await message.answer(recipe.beauty_text())
+
+
 @dp.message(F.text == "⚡ Быстрое")
 async def fast_recipe(message: Message):
     fast_recipes = []

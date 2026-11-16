@@ -11,7 +11,7 @@ class Recipe:
         self.ingredients = ingredients
         self.steps = list(steps)
         self.time = int(time)
-        self.equipment = str(equipment)
+        self.equipment = equipment
         self.nutrition = dict(nutrition)
         self.tags = list(tags)
 
@@ -28,10 +28,14 @@ class Recipe:
             steps_text += f"{i}. {step}\n"
 
         n = self.nutrition
+        if len(self.equipment) > 1:
+            equipment2 = ', '.join(self.ingredients)
+        equipment2 = self.equipment[0]
+
         return (
             f"ᓚᘏᗢ {self.name}\n\n"
             f"⊹ Время: {self.time} мин\n"
-            f"⊹ Что нужно: {self.equipment}\n"
+            f"⊹ Что нужно: {equipment2}\n"
             f"⊹ КБЖУ: {n['kcal']} ккал, Б {n['protein']}, "
             f"Ж {n['fat']}, У {n['carbs']}\n\n"
             f"⊹ Ингредиенты: {', '.join(self.ingredients)}\n\n"
@@ -56,3 +60,15 @@ def load_recipes(path=os.path.join(BASE_DIR, "recipes.json")):
         )
         recipes.append(recipe)
     return recipes
+
+
+def recipes_counter(path=os.path.join(BASE_DIR, "recipes.json")):
+    with open(path, encoding="utf-8") as file:
+        data = json.load(file)
+
+    count = 0
+    for item in data:
+        if item["name"]:
+            count += 1
+
+    print(count)
