@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from models import load_recipes
 from keyboards import main_menu, recipe_kb
-from storage import is_fav, toggle_fav, get_favs
+from storage import is_fav, toggle_fav, get_favs, remember_user
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -38,6 +38,7 @@ class Search(StatesGroup):
 
 @dp.message(CommandStart())
 async def start(message: Message):
+    remember_user(message.from_user.id, message.from_user.first_name, message.from_user.username)
     await message.answer(
         f"Привет, огузок {message.from_user.first_name}. "
         "Это общажный бот для рецептов на любой вкус, даже ппшные, даже быстрые и даже без микроволновки.",
