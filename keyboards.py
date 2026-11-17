@@ -15,3 +15,10 @@ def recipe_kb(rid, fav):
         InlineKeyboardButton(text="💔 Убрать" if fav else "⭐ В избранное", callback_data=f"fav:{rid}"),
         InlineKeyboardButton(text="➡️ Следующий", callback_data="next"),
     ]])
+
+
+def fav_kb(rid):
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="➡️ Следующий", callback_data=f"favnext:{rid}"),
+        InlineKeyboardButton(text="💔 Убрать", callback_data=f"fav:{rid}"),
+    ]])

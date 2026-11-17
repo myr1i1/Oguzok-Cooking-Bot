@@ -4,7 +4,7 @@ import random
 from dotenv import load_dotenv
 
 from models import load_recipes
-from keyboards import main_menu, recipe_kb
+from keyboards import main_menu, recipe_kb, fav_kb
 from storage import is_fav, toggle_fav, get_favs, remember_user, all_user_ids
 
 from aiogram import Bot, Dispatcher, F
@@ -132,7 +132,12 @@ async def fast_recipe(message: Message):
 async def on_fav(cb: CallbackQuery):
     rid = cb.data.split(":", 1)[1]
     added = toggle_fav(cb.from_user.id, rid)
-    await cb.message.edit_reply_markup(reply_markup=recipe_kb(rid, is_fav(cb.from_user.id, rid)))
+    if added:
+        # добавление — оставляем кнопки, но перерисовываем «Добавить» → «Убрать»
+        await cb.message.edit_reply_markup(reply_markup=recipe_kb(rid, True))
+    else:
+        # удаление — просто убираем кнопки, чтобы не путать с листанием
+        await cb.message.edit_reply_markup(reply_markup=None)
     await cb.answer("⭐ Добавлено" if added else "Убрано")
 
 @dp.callback_query(F.data == "next")
@@ -143,14 +148,32 @@ async def on_next(cb: CallbackQuery):
     await cb.message.answer(text, reply_markup=kb)
     await cb.answer()
 
+
+@dp.callback_query(F.data.startswith("favnext:"))
+async def on_fav_next(cb: CallbackQuery):
+    rid = cb.data.split(":", 1)[1]
+    ids = get_favs(cb.from_user.id)
+    if not ids:
+        return await cb.answer("Пусто", show_alert=True)
+    idx = ids.index(rid) if rid in ids else -1
+    nxt = ids[(idx + 1) % len(ids)]   # зацикливание: после последнего — первый
+    r = by_id.get(nxt)
+    if not r:
+        return await cb.answer("Рецепт не найден", show_alert=True)
+    await cb.message.edit_reply_markup(reply_markup=None)   # убрать кнопки у старого
+    await cb.message.answer(r.beauty_text(), reply_markup=fav_kb(nxt))
+    await cb.answer()
+
+
 @dp.message(F.text == "⭐ Избранное")
 async def show_favs(message: Message):
     ids = get_favs(message.from_user.id)
     if not ids:
         return await message.answer("Пусто. Жми ⭐ под рецептом.")
-    for rid in ids:
-        r = by_id.get(rid)
-        if r: await message.answer(r.beauty_text(), reply_markup=recipe_kb(rid, True))
+    r = by_id.get(ids[0])
+    if not r:
+        return await message.answer("Что-то не нашлось, попробуй ещё раз.")
+    await message.answer(r.beauty_text(), reply_markup=fav_kb(ids[0]))
 
 
 @dp.message(F.text == "📢 Рассылка")
