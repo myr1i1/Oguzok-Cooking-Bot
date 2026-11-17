@@ -1,6 +1,6 @@
 import json
 import os
-
+import hashlib
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -14,6 +14,7 @@ class Recipe:
         self.equipment = equipment
         self.nutrition = dict(nutrition)
         self.tags = list(tags)
+        self.id = hashlib.md5(str(name).encode("utf-8")).hexdigest()[:8]
 
     def match(self, own_ingredients):
         matches = 0

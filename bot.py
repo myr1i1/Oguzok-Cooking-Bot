@@ -4,11 +4,12 @@ import random
 from dotenv import load_dotenv
 
 from models import load_recipes
-from keyboards import main_menu
+from keyboards import main_menu, recipe_kb
+from storage import is_fav, toggle_fav, get_favs
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -25,6 +26,12 @@ bot = Bot(token=os.getenv("BOT_TOKEN"), session=session)
 
 dp = Dispatcher()
 recipes = load_recipes()
+
+by_id = {r.id: r for r in recipes}
+def with_kb(uid, recipe):
+    return recipe.beauty_text(), recipe_kb(recipe.id, is_fav(uid, recipe.id))
+
+
 class Search(StatesGroup):
     waiting_ingredients = State()
 
@@ -65,16 +72,18 @@ async def find_by_ingredients(message: Message, state: FSMContext):
     found.sort(key=lambda pair: pair[0], reverse=True)
 
     for count, recipe in found[:3]:
+        text, kb = with_kb(message.from_user.id, recipe)
         await message.answer(
-            f"⊹ Совпало {count} из {len(recipe.ingredients)}\n\n"
-            + recipe.beauty_text()
-        )
+        f"⊹ Совпало {count} из {len(recipe.ingredients)}\n\n" + text,
+        reply_markup=kb,
+    )
 
 
 @dp.message(F.text == "🎲 Рандом")
 async def random_recipe(message: Message):
     recipe = random.choice(recipes)
-    await message.answer(recipe.beauty_text())
+    text, kb = with_kb(message.from_user.id, recipe)
+    await message.answer(text, reply_markup=kb)
 
 
 @dp.message(F.text == "💪 ПП")
@@ -85,7 +94,8 @@ async def pp_recipe(message: Message):
             pp_recipes.append(recipe)
 
     recipe = random.choice(pp_recipes)
-    await message.answer(recipe.beauty_text())
+    text, kb = with_kb(message.from_user.id, recipe)
+    await message.answer(text, reply_markup=kb)
 
 
 @dp.message(F.text == "🍰 Сладкое")
@@ -96,7 +106,8 @@ async def sweet_recipe(message: Message):
             sweet_recipes.append(recipe)
 
     recipe = random.choice(sweet_recipes)
-    await message.answer(recipe.beauty_text())
+    text, kb = with_kb(message.from_user.id, recipe)
+    await message.answer(text, reply_markup=kb)
 
 
 @dp.message(F.text == "⚡ Быстрое")
@@ -107,12 +118,38 @@ async def fast_recipe(message: Message):
             fast_recipes.append(recipe)
 
     recipe = random.choice(fast_recipes)
-    await message.answer(recipe.beauty_text())
+    text, kb = with_kb(message.from_user.id, recipe)
+    await message.answer(text, reply_markup=kb)
+
+
+@dp.callback_query(F.data.startswith("fav:"))
+async def on_fav(cb: CallbackQuery):
+    rid = cb.data.split(":", 1)[1]
+    added = toggle_fav(cb.from_user.id, rid)
+    await cb.message.edit_reply_markup(reply_markup=recipe_kb(rid, is_fav(cb.from_user.id, rid)))
+    await cb.answer("⭐ Добавлено" if added else "Убрано")
+
+@dp.callback_query(F.data == "next")
+async def on_next(cb: CallbackQuery):
+    recipe = random.choice(recipes)
+    text, kb = with_kb(cb.from_user.id, recipe)
+    await cb.message.edit_reply_markup(reply_markup=None)
+    await cb.message.answer(text, reply_markup=kb)
+    await cb.answer()
+
+@dp.message(F.text == "⭐ Избранное")
+async def show_favs(message: Message):
+    ids = get_favs(message.from_user.id)
+    if not ids:
+        return await message.answer("Пусто. Жми ⭐ под рецептом.")
+    for rid in ids:
+        r = by_id.get(rid)
+        if r: await message.answer(r.beauty_text(), reply_markup=recipe_kb(rid, True))
 
 
 @dp.message(F.text)
 async def echo(message: Message):
-    await message.answer(message.text)
+    await message.answer("Эм, не понял. Жми кнопки в меню 👇", reply_markup=main_menu)
 
 
 @dp.message(F.sticker)
