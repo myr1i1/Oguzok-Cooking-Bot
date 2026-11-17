@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from models import load_recipes
 from keyboards import main_menu, recipe_kb
-from storage import is_fav, toggle_fav, get_favs, remember_user
+from storage import is_fav, toggle_fav, get_favs, remember_user, all_user_ids
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -16,6 +16,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 
 load_dotenv()
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 proxy = os.getenv("PROXY")
 if proxy:
@@ -34,6 +35,10 @@ def with_kb(uid, recipe):
 
 class Search(StatesGroup):
     waiting_ingredients = State()
+
+
+class Broadcast(StatesGroup):
+    waiting_text = State()
 
 
 @dp.message(CommandStart())
@@ -146,6 +151,29 @@ async def show_favs(message: Message):
     for rid in ids:
         r = by_id.get(rid)
         if r: await message.answer(r.beauty_text(), reply_markup=recipe_kb(rid, True))
+
+
+@dp.message(F.text == "📢 Рассылка")
+async def ask_broadcast(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return await message.answer("Тише, тише, братан. Эта кнопка не для тебя 👀")
+    await state.set_state(Broadcast.waiting_text)
+    await message.answer("Пиши текст рассылки. Он уйдёт всем, кто хоть раз делал /start.")
+
+
+@dp.message(Broadcast.waiting_text, F.text)
+async def do_broadcast(message: Message, state: FSMContext):
+    await state.clear()
+    text = message.text
+    sent = failed = 0
+    for uid in all_user_ids():
+        try:
+            await message.bot.send_message(int(uid), text)
+            sent += 1
+        except Exception:
+            failed += 1
+        await asyncio.sleep(0.05)
+    await message.answer(f"✅ Отправлено: {sent}\n❌ Не дошло: {failed}")
 
 
 @dp.message(F.text)

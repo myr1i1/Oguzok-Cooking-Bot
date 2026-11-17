@@ -14,6 +14,10 @@ def _load():
         return {}
 
 
+def all_user_ids():
+    return list(_load().keys())
+
+
 def _save(d):
     with open(PATH, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
