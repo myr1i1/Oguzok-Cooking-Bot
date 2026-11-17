@@ -14,6 +14,7 @@ async def main():
         url="https://myrlil.pythonanywhere.com/webhook",
         secret_token=os.getenv("WEBHOOK_SECRET"),
         drop_pending_updates=True,
+        allowed_updates=["message", "callback_query"],
     )
     await bot.session.close()
     print("Вебхук установлен ✅")
