@@ -22,3 +22,10 @@ def fav_kb(rid):
         InlineKeyboardButton(text="➡️ Следующий", callback_data=f"favnext:{rid}"),
         InlineKeyboardButton(text="💔 Убрать", callback_data=f"fav:{rid}"),
     ]])
+
+
+def search_kb(rid, fav):
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="➡️ Следующий", callback_data=f"srchnext:{rid}"),
+        InlineKeyboardButton(text="💔 Убрать" if fav else "⭐ В избранное", callback_data=f"fav:{rid}"),
+    ]])

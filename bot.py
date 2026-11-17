@@ -4,7 +4,7 @@ import random
 from dotenv import load_dotenv
 
 from models import load_recipes
-from keyboards import main_menu, recipe_kb, fav_kb
+from keyboards import main_menu, recipe_kb, fav_kb, search_kb
 from storage import is_fav, toggle_fav, get_favs, remember_user, all_user_ids
 
 from aiogram import Bot, Dispatcher, F
@@ -56,18 +56,13 @@ async def start(message: Message):
 async def ask_ingredients(message: Message, state: FSMContext):
     await state.set_state(Search.waiting_ingredients)
     await message.answer(
-        "Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры...\n"
-        "Выдает 5 рецептов."
+        "Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры..."
     )
 
 
 @dp.message(Search.waiting_ingredients, F.text)
 async def find_by_ingredients(message: Message, state: FSMContext):
-    await state.clear()
-
-    user_ingredients = []
-    for item in message.text.split(","):
-        user_ingredients.append(item.strip().lower())
+    user_ingredients = [i.strip().lower() for i in message.text.split(",")]
 
     found = []
     for recipe in recipes:
@@ -76,17 +71,18 @@ async def find_by_ingredients(message: Message, state: FSMContext):
             found.append((count, recipe))
 
     if not found:
-        await message.answer("Из этого даже я ничего не сварю. Сходи в магаз")
-        return
+        await state.clear()
+        return await message.answer("Из этого даже я ничего не сварю. Сходи в магаз")
 
     found.sort(key=lambda pair: pair[0], reverse=True)
+    pool = [[count, r.id] for count, r in found]
+    await state.update_data(pool=pool)
+    await state.set_state(None)
 
-    for count, recipe in found[:5]:
-        text, kb = with_kb(message.from_user.id, recipe)
-        await message.answer(
-        f"⊹ Совпало {count} из {len(recipe.ingredients)}\n\n" + text,
-        reply_markup=kb,
-    )
+    first = found[0]
+    r = first[1]
+    text = f"⊹ Совпало {first[0]} из {len(r.ingredients)}\n\n" + r.beauty_text()
+    await message.answer(text, reply_markup=search_kb(r.id, is_fav(message.from_user.id, r.id)))
 
 
 @dp.message(F.text == "🎲 Рандом")
@@ -208,18 +204,13 @@ async def ask_equipment(message: Message, state: FSMContext):
     await state.set_state(Search.waiting_equipment)
     await message.answer(
         "Какие кухонные принадлежности в наличии? Пиши через запятую, выбирая из этих: "
-        "сковородка, блендер, духовка, без готовки, микроволновка, кастрюля.\n"
-        "Выдает 5 рецептов."
+        "сковородка, блендер, духовка, без готовки, микроволновка, кастрюля."
     )
 
 
 @dp.message(Search.waiting_equipment, F.text)
 async def find_by_equipment(message: Message, state: FSMContext):
-    await state.clear()
-
-    user_equipment = []
-    for item in message.text.split(","):
-        user_equipment.append(item.strip().lower())
+    user_equipment = [i.strip().lower() for i in message.text.split(",")]
 
     found = []
     for recipe in recipes:
@@ -228,17 +219,45 @@ async def find_by_equipment(message: Message, state: FSMContext):
             found.append((count, recipe))
 
     if not found:
-        await message.answer("Ты чето борщишь. Напиши хотя бы 'без готовки' если нет ничего.")
-        return
+        await state.clear()
+        return await message.answer("Ты чето борщишь. Не тот формат.")
 
     found.sort(key=lambda pair: pair[0], reverse=True)
+    pool = [[count, r.id] for count, r in found]
 
-    for count, recipe in found[:5]:
-        text, kb = with_kb(message.from_user.id, recipe)
-        await message.answer(
-        text,
-        reply_markup=kb,
-    )
+    await state.update_data(pool=pool, search_type="equipment")
+    await state.set_state(None)
+
+    count, r = found[0]
+    text = r.beauty_text()
+    await message.answer(text, reply_markup=search_kb(r.id, is_fav(message.from_user.id, r.id)))
+
+
+@dp.callback_query(F.data.startswith("srchnext:"))
+async def on_srch_next(cb: CallbackQuery, state: FSMContext):
+    rid = cb.data.split(":", 1)[1]
+    data = await state.get_data()
+    pool = data.get("pool", [])
+
+    if not pool:
+        return await cb.answer("Список устарел, начни поиск заново", show_alert=True)
+
+    ids = [item[1] for item in pool]
+    idx = ids.index(rid) if rid in ids else -1
+    next_idx = (idx + 1) % len(pool)
+
+    count, nxt = pool[next_idx]
+    r = by_id.get(nxt)
+    if not r:
+        return await cb.answer("Рецепт не найден", show_alert=True)
+
+    text = r.beauty_text()
+    if data.get("search_type") != "equipment":
+        text = f"⊹ Совпало {count} из {len(r.ingredients)}\n\n" + text
+
+    await cb.message.edit_reply_markup(reply_markup=None)
+    await cb.message.answer(text, reply_markup=search_kb(nxt, is_fav(cb.from_user.id, nxt)))
+    await cb.answer()
 
 
 @dp.message(F.text)
