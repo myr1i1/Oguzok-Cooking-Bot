@@ -4,7 +4,7 @@ main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🔍 По продуктам"), KeyboardButton(text="🎲 Рандом"), KeyboardButton(text="🍰 Сладкое")],
         [KeyboardButton(text="💪 ПП"), KeyboardButton(text="⚡ Быстрое"), KeyboardButton(text="⭐ Избранное")],
-        [KeyboardButton(text="📢 Рассылка")],
+        [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="🍳 По технике")]
     ],
     resize_keyboard=True,
 )

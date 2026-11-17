@@ -23,6 +23,10 @@ class Recipe:
                 matches += 1
         return matches
 
+    def match_equipment(self, own_equipment):
+        own = [e.lower() for e in own_equipment]
+        return sum(1 for eq in self.equipment if eq.lower() in own)
+
     def beauty_text(self):
         steps_text = ""
         for i, step in enumerate(self.steps, start=1):

@@ -35,6 +35,7 @@ def with_kb(uid, recipe):
 
 class Search(StatesGroup):
     waiting_ingredients = State()
+    waiting_equipment = State()
 
 
 class Broadcast(StatesGroup):
@@ -54,7 +55,10 @@ async def start(message: Message):
 @dp.message(F.text == "🔍 По продуктам")
 async def ask_ingredients(message: Message, state: FSMContext):
     await state.set_state(Search.waiting_ingredients)
-    await message.answer("Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры")
+    await message.answer(
+        "Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры...\n"
+        "Выдает 5 рецептов."
+    )
 
 
 @dp.message(Search.waiting_ingredients, F.text)
@@ -77,7 +81,7 @@ async def find_by_ingredients(message: Message, state: FSMContext):
 
     found.sort(key=lambda pair: pair[0], reverse=True)
 
-    for count, recipe in found[:3]:
+    for count, recipe in found[:5]:
         text, kb = with_kb(message.from_user.id, recipe)
         await message.answer(
         f"⊹ Совпало {count} из {len(recipe.ingredients)}\n\n" + text,
@@ -197,6 +201,44 @@ async def do_broadcast(message: Message, state: FSMContext):
             failed += 1
         await asyncio.sleep(0.05)
     await message.answer(f"✅ Отправлено: {sent}\n❌ Не дошло: {failed}")
+
+
+@dp.message(F.text == "🍳 По технике")
+async def ask_equipment(message: Message, state: FSMContext):
+    await state.set_state(Search.waiting_equipment)
+    await message.answer(
+        "Какие кухонные принадлежности в наличии? Пиши через запятую, выбирая из этих: "
+        "сковородка, блендер, духовка, без готовки, микроволновка, кастрюля.\n"
+        "Выдает 5 рецептов."
+    )
+
+
+@dp.message(Search.waiting_equipment, F.text)
+async def find_by_equipment(message: Message, state: FSMContext):
+    await state.clear()
+
+    user_equipment = []
+    for item in message.text.split(","):
+        user_equipment.append(item.strip().lower())
+
+    found = []
+    for recipe in recipes:
+        count = recipe.match_equipment(user_equipment)
+        if count == len(recipe.equipment):
+            found.append((count, recipe))
+
+    if not found:
+        await message.answer("Ты чето борщишь. Напиши хотя бы 'без готовки' если нет ничего.")
+        return
+
+    found.sort(key=lambda pair: pair[0], reverse=True)
+
+    for count, recipe in found[:5]:
+        text, kb = with_kb(message.from_user.id, recipe)
+        await message.answer(
+        text,
+        reply_markup=kb,
+    )
 
 
 @dp.message(F.text)
