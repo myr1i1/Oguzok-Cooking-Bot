@@ -1,10 +1,11 @@
+# bot.py
 import asyncio
 import os
 import random
 from dotenv import load_dotenv
 
 from models import load_recipes
-from keyboards import main_menu, recipe_kb, fav_kb, search_kb
+from keyboards import main_menu, nav_kb
 from storage import is_fav, toggle_fav, get_favs, remember_user, all_user_ids
 
 from aiogram import Bot, Dispatcher, F
@@ -13,24 +14,19 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.exceptions import TelegramBadRequest
 
 
 load_dotenv()
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 proxy = os.getenv("PROXY")
-if proxy:
-    session = AiohttpSession(proxy=proxy)
-else:
-    session = None
+session = AiohttpSession(proxy=proxy) if proxy else None
 bot = Bot(token=os.getenv("BOT_TOKEN"), session=session)
 
 dp = Dispatcher()
 recipes = load_recipes()
-
 by_id = {r.id: r for r in recipes}
-def with_kb(uid, recipe):
-    return recipe.beauty_text(), recipe_kb(recipe.id, is_fav(uid, recipe.id))
 
 
 class Search(StatesGroup):
@@ -42,28 +38,111 @@ class Broadcast(StatesGroup):
     waiting_text = State()
 
 
+def get_category_pool(category: str) -> list[str]:
+    if category == "pp":
+        return [r.id for r in recipes if "пп" in r.tags or "белковое" in r.tags]
+    if category == "sweet":
+        return [r.id for r in recipes if "сладкое" in r.tags]
+    if category == "fast":
+        return [r.id for r in recipes if "быстрое" in r.tags]
+    return [r.id for r in recipes]
+
+
+def render_card(uid: int, data: dict):
+    """Собирает текст и клавиатуру для текущего индекса в FSM."""
+    mode = data.get("mode")
+    history = data.get("history", [])
+    idx = data.get("idx", 0)
+    matches_map = data.get("matches", {})
+
+    rid = history[idx]
+    r = by_id[rid]
+    text = r.beauty_text()
+
+    if mode == "ingredients" and rid in matches_map:
+        text = f"⊹ Совпало {matches_map[rid]} из {len(r.ingredients)}\n\n" + text
+
+    has_prev = idx > 0
+    if mode in ("random", "pp", "sweet", "fast"):
+        # В категориях вперед можно листать всегда, пока есть больше 1 рецепта
+        has_next = len(get_category_pool(mode)) > 1
+    else:
+        # В поиске и избранном идем по списку history
+        has_next = idx < len(history) - 1
+
+    kb = nav_kb(rid, is_fav(uid, rid), has_prev=has_prev, has_next=has_next)
+    return text, kb
+
+
+async def start_browsing(message: Message, state: FSMContext, mode: str, pool_ids: list[str], matches: dict | None = None):
+    """Запускает просмотр раздела новым сообщением."""
+    if mode in ("random", "pp", "sweet", "fast"):
+        first_id = random.choice(pool_ids)
+        history = [first_id]
+    else:
+        history = list(pool_ids)
+
+    data = {
+        "mode": mode,
+        "history": history,
+        "idx": 0,
+        "matches": matches or {},
+    }
+    await state.set_state(None)
+    await state.set_data(data)
+
+    text, kb = render_card(message.from_user.id, data)
+    await message.answer(text, reply_markup=kb)
+
+
 @dp.message(CommandStart())
-async def start(message: Message):
+async def start(message: Message, state: FSMContext):
+    await state.clear()
     remember_user(message.from_user.id, message.from_user.first_name, message.from_user.username)
     await message.answer(
         f"Привет, огузок {message.from_user.first_name}. "
         "Это общажный бот для рецептов на любой вкус, даже ппшные, даже быстрые и даже без микроволновки.",
         reply_markup=main_menu,
-        )
+    )
+
+
+@dp.message(F.text == "🎲 Рандом")
+async def random_recipe(message: Message, state: FSMContext):
+    await start_browsing(message, state, "random", get_category_pool("random"))
+
+
+@dp.message(F.text == "💪 ПП")
+async def pp_recipe(message: Message, state: FSMContext):
+    await start_browsing(message, state, "pp", get_category_pool("pp"))
+
+
+@dp.message(F.text == "🍰 Сладкое")
+async def sweet_recipe(message: Message, state: FSMContext):
+    await start_browsing(message, state, "sweet", get_category_pool("sweet"))
+
+
+@dp.message(F.text == "⚡ Быстрое")
+async def fast_recipe(message: Message, state: FSMContext):
+    await start_browsing(message, state, "fast", get_category_pool("fast"))
+
+
+@dp.message(F.text == "⭐ Избранное")
+async def show_favs(message: Message, state: FSMContext):
+    ids = [rid for rid in get_favs(message.from_user.id) if rid in by_id]
+    if not ids:
+        return await message.answer("Пусто. Жми ⭐ под рецептом.")
+    await start_browsing(message, state, "favs", ids)
 
 
 @dp.message(F.text == "🔍 По продуктам")
 async def ask_ingredients(message: Message, state: FSMContext):
     await state.set_state(Search.waiting_ingredients)
-    await message.answer(
-        "Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры..."
-    )
+    await message.answer("Че у тебя есть? Пиши через запятую: яйца, сыр, помидоры...")
 
 
 @dp.message(Search.waiting_ingredients, F.text)
 async def find_by_ingredients(message: Message, state: FSMContext):
-    user_ingredients = [i.strip().lower() for i in message.text.split(",")]
-
+    user_ingredients = [i.strip().lower() for i in message.text.split(",") if i.strip()]
     found = []
     for recipe in recipes:
         count = recipe.match(user_ingredients)
@@ -75,105 +154,110 @@ async def find_by_ingredients(message: Message, state: FSMContext):
         return await message.answer("Из этого даже я ничего не сварю. Сходи в магаз")
 
     found.sort(key=lambda pair: pair[0], reverse=True)
-    pool = [[count, r.id] for count, r in found]
-    await state.update_data(pool=pool)
-    await state.set_state(None)
-
-    first = found[0]
-    r = first[1]
-    text = f"⊹ Совпало {first[0]} из {len(r.ingredients)}\n\n" + r.beauty_text()
-    await message.answer(text, reply_markup=search_kb(r.id, is_fav(message.from_user.id, r.id)))
+    pool_ids = [r.id for _, r in found]
+    matches = {r.id: count for count, r in found}
+    await start_browsing(message, state, "ingredients", pool_ids, matches=matches)
 
 
-@dp.message(F.text == "🎲 Рандом")
-async def random_recipe(message: Message):
-    recipe = random.choice(recipes)
-    text, kb = with_kb(message.from_user.id, recipe)
-    await message.answer(text, reply_markup=kb)
+@dp.message(F.text == "🍳 По технике")
+async def ask_equipment(message: Message, state: FSMContext):
+    await state.set_state(Search.waiting_equipment)
+    await message.answer(
+        "Какие кухонные принадлежности в наличии? Пиши через запятую, выбирая из этих: "
+        "сковородка, блендер, духовка, без готовки, микроволновка, кастрюля."
+    )
 
 
-@dp.message(F.text == "💪 ПП")
-async def pp_recipe(message: Message):
-    pp_recipes = []
-    for recipe in recipes:
-        if "пп" in recipe.tags or "белковое" in recipe.tags:
-            pp_recipes.append(recipe)
+@dp.message(Search.waiting_equipment, F.text)
+async def find_by_equipment(message: Message, state: FSMContext):
+    user_equipment = [i.strip().lower() for i in message.text.split(",") if i.strip()]
+    found = [
+        r for r in recipes
+        if r.match_equipment(user_equipment) == len(r.equipment)
+    ]
 
-    recipe = random.choice(pp_recipes)
-    text, kb = with_kb(message.from_user.id, recipe)
-    await message.answer(text, reply_markup=kb)
+    if not found:
+        await state.clear()
+        return await message.answer("Ты чето борщишь. Не тот формат.")
 
-
-@dp.message(F.text == "🍰 Сладкое")
-async def sweet_recipe(message: Message):
-    sweet_recipes = []
-    for recipe in recipes:
-        if "сладкое" in recipe.tags:
-            sweet_recipes.append(recipe)
-
-    recipe = random.choice(sweet_recipes)
-    text, kb = with_kb(message.from_user.id, recipe)
-    await message.answer(text, reply_markup=kb)
+    await start_browsing(message, state, "equipment", [r.id for r in found])
 
 
-@dp.message(F.text == "⚡ Быстрое")
-async def fast_recipe(message: Message):
-    fast_recipes = []
-    for recipe in recipes:
-        if "быстрое" in recipe.tags:
-            fast_recipes.append(recipe)
+@dp.callback_query(F.data.startswith("nav:"))
+async def on_navigate(cb: CallbackQuery, state: FSMContext):
+    direction = cb.data.split(":", 1)[1]
+    data = await state.get_data()
+    mode = data.get("mode")
+    history = list(data.get("history", []))
+    idx = data.get("idx", 0)
 
-    recipe = random.choice(fast_recipes)
-    text, kb = with_kb(message.from_user.id, recipe)
-    await message.answer(text, reply_markup=kb)
+    if not mode or not history:
+        return await cb.answer("Список устарел, выбери раздел в меню заново", show_alert=True)
+
+    if direction == "prev":
+        if idx <= 0:
+            return await cb.answer("Это первый рецепт")
+        idx -= 1
+    elif direction == "next":
+        if idx < len(history) - 1:
+            idx += 1
+        elif mode in ("random", "pp", "sweet", "fast"):
+            pool = get_category_pool(mode)
+            unseen = [rid for rid in pool if rid not in history]
+            if unseen:
+                nxt = random.choice(unseen)
+            else:
+                candidates = [rid for rid in pool if rid != history[-1]] or pool
+                nxt = random.choice(candidates)
+            history.append(nxt)
+            idx += 1
+        else:
+            return await cb.answer("Это последний рецепт")
+
+    data["history"] = history
+    data["idx"] = idx
+    await state.set_data(data)
+
+    text, kb = render_card(cb.from_user.id, data)
+    try:
+        await cb.message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
+    await cb.answer()
 
 
 @dp.callback_query(F.data.startswith("fav:"))
-async def on_fav(cb: CallbackQuery):
+async def on_fav(cb: CallbackQuery, state: FSMContext):
     rid = cb.data.split(":", 1)[1]
     added = toggle_fav(cb.from_user.id, rid)
-    if added:
-        # добавление — оставляем кнопки, но перерисовываем «Добавить» → «Убрать»
-        await cb.message.edit_reply_markup(reply_markup=recipe_kb(rid, True))
+    data = await state.get_data()
+    mode = data.get("mode")
+    history = list(data.get("history", []))
+    idx = data.get("idx", 0)
+
+    # Если удалили рецепт прямо внутри раздела «Избранное» — убираем его из текущего списка
+    if mode == "favs" and not added and rid in history:
+        history.remove(rid)
+        if not history:
+            await state.clear()
+            await cb.message.edit_text("В избранном больше ничего не осталось. Жми ⭐ под рецептом.")
+            return await cb.answer("Убрано")
+        idx = min(idx, len(history) - 1)
+        data["history"] = history
+        data["idx"] = idx
+        await state.set_data(data)
+        text, kb = render_card(cb.from_user.id, data)
+        await cb.message.edit_text(text, reply_markup=kb)
+        return await cb.answer("Убрано")
+
+    # В остальных режимах просто обновляем кнопку «В избранное» / «Убрать»
+    if history and 0 <= idx < len(history) and history[idx] == rid:
+        _, kb = render_card(cb.from_user.id, data)
+        await cb.message.edit_reply_markup(reply_markup=kb)
     else:
-        # удаление — просто убираем кнопки, чтобы не путать с листанием
-        await cb.message.edit_reply_markup(reply_markup=None)
+        await cb.message.edit_reply_markup(reply_markup=nav_kb(rid, added, has_prev=False, has_next=False))
+
     await cb.answer("⭐ Добавлено" if added else "Убрано")
-
-@dp.callback_query(F.data == "next")
-async def on_next(cb: CallbackQuery):
-    recipe = random.choice(recipes)
-    text, kb = with_kb(cb.from_user.id, recipe)
-    await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.message.answer(text, reply_markup=kb)
-    await cb.answer()
-
-
-@dp.callback_query(F.data.startswith("favnext:"))
-async def on_fav_next(cb: CallbackQuery):
-    rid = cb.data.split(":", 1)[1]
-    ids = get_favs(cb.from_user.id)
-    if not ids:
-        return await cb.answer("Пусто", show_alert=True)
-    idx = ids.index(rid) if rid in ids else -1
-    nxt = ids[(idx + 1) % len(ids)]   # зацикливание: после последнего — первый
-    r = by_id.get(nxt)
-    if not r:
-        return await cb.answer("Рецепт не найден", show_alert=True)
-    await cb.message.edit_reply_markup(reply_markup=None)   # убрать кнопки у старого
-    await cb.message.answer(r.beauty_text(), reply_markup=fav_kb(nxt))
-    await cb.answer()
-
-
-@dp.message(F.text == "⭐ Избранное")
-async def show_favs(message: Message):
-    ids = get_favs(message.from_user.id)
-    if not ids:
-        return await message.answer("Пусто. Жми ⭐ под рецептом.")
-    r = by_id.get(ids[0])
-    if not r:
-        return await message.answer("Что-то не нашлось, попробуй ещё раз.")
-    await message.answer(r.beauty_text(), reply_markup=fav_kb(ids[0]))
 
 
 @dp.message(F.text == "📢 Рассылка")
@@ -197,67 +281,6 @@ async def do_broadcast(message: Message, state: FSMContext):
             failed += 1
         await asyncio.sleep(0.05)
     await message.answer(f"✅ Отправлено: {sent}\n❌ Не дошло: {failed}")
-
-
-@dp.message(F.text == "🍳 По технике")
-async def ask_equipment(message: Message, state: FSMContext):
-    await state.set_state(Search.waiting_equipment)
-    await message.answer(
-        "Какие кухонные принадлежности в наличии? Пиши через запятую, выбирая из этих: "
-        "сковородка, блендер, духовка, без готовки, микроволновка, кастрюля."
-    )
-
-
-@dp.message(Search.waiting_equipment, F.text)
-async def find_by_equipment(message: Message, state: FSMContext):
-    user_equipment = [i.strip().lower() for i in message.text.split(",")]
-
-    found = []
-    for recipe in recipes:
-        count = recipe.match_equipment(user_equipment)
-        if count == len(recipe.equipment):
-            found.append((count, recipe))
-
-    if not found:
-        await state.clear()
-        return await message.answer("Ты чето борщишь. Не тот формат.")
-
-    found.sort(key=lambda pair: pair[0], reverse=True)
-    pool = [[count, r.id] for count, r in found]
-
-    await state.update_data(pool=pool, search_type="equipment")
-    await state.set_state(None)
-
-    count, r = found[0]
-    text = r.beauty_text()
-    await message.answer(text, reply_markup=search_kb(r.id, is_fav(message.from_user.id, r.id)))
-
-
-@dp.callback_query(F.data.startswith("srchnext:"))
-async def on_srch_next(cb: CallbackQuery, state: FSMContext):
-    rid = cb.data.split(":", 1)[1]
-    data = await state.get_data()
-    pool = data.get("pool", [])
-
-    if not pool:
-        return await cb.answer("Список устарел, начни поиск заново", show_alert=True)
-
-    ids = [item[1] for item in pool]
-    idx = ids.index(rid) if rid in ids else -1
-    next_idx = (idx + 1) % len(pool)
-
-    count, nxt = pool[next_idx]
-    r = by_id.get(nxt)
-    if not r:
-        return await cb.answer("Рецепт не найден", show_alert=True)
-
-    text = r.beauty_text()
-    if data.get("search_type") != "equipment":
-        text = f"⊹ Совпало {count} из {len(r.ingredients)}\n\n" + text
-
-    await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.message.answer(text, reply_markup=search_kb(nxt, is_fav(cb.from_user.id, nxt)))
-    await cb.answer()
 
 
 @dp.message(F.text)

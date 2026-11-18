@@ -10,22 +10,17 @@ main_menu = ReplyKeyboardMarkup(
 )
 
 
-def recipe_kb(rid, fav):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="💔 Убрать" if fav else "⭐ В избранное", callback_data=f"fav:{rid}"),
-        InlineKeyboardButton(text="➡️ Следующий", callback_data="next"),
-    ]])
+def nav_kb(rid: str, fav: bool, has_prev: bool = False, has_next: bool = True) -> InlineKeyboardMarkup:
+    nav_row = []
+    if has_prev:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:prev"))
+    if has_next:
+        nav_row.append(InlineKeyboardButton(text="➡️ Вперёд", callback_data="nav:next"))
 
-
-def fav_kb(rid):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="➡️ Следующий", callback_data=f"favnext:{rid}"),
-        InlineKeyboardButton(text="💔 Убрать", callback_data=f"fav:{rid}"),
-    ]])
-
-
-def search_kb(rid, fav):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="➡️ Следующий", callback_data=f"srchnext:{rid}"),
-        InlineKeyboardButton(text="💔 Убрать" if fav else "⭐ В избранное", callback_data=f"fav:{rid}"),
-    ]])
+    rows = []
+    if nav_row:
+        rows.append(nav_row)
+    rows.append([
+        InlineKeyboardButton(text="💔 Убрать" if fav else "⭐ В избранное", callback_data=f"fav:{rid}")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
