@@ -4,28 +4,93 @@ import hashlib
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+SYNONYMS = {
+    # Курица
+    "курица": "курица",
+    "куриное филе": "курица",
+    "куриная грудка": "курица",
+    "филе курицы": "курица",
+    "курочка": "курица",
+    # Яйца
+    "яйцо": "яйца",
+    "яйца": "яйца",
+    "яичный белок": "яйца",
+    "желток": "яйца",
+    # Овощи
+    "помидор": "помидоры",
+    "помидоры": "помидоры",
+    "томат": "помидоры",
+    "томаты": "помидоры",
+    "огурец": "огурец",
+    "огурцы": "огурец",
+    "соленые огурцы": "огурец",
+    "картошка": "картофель",
+    "картофель": "картофель",
+    "зеленый лук": "лук",
+    "лук": "лук",
+    # Молочка
+    "мягкий творог": "творог",
+    "творожный сыр": "творог",
+    "творожок": "творог",
+    "творог": "творог",
+    "сгущенка": "сгущенное молоко",
+    "сгущенное молоко": "сгущенное молоко",
+    "йогурт": "греческий йогурт",
+    "греческий йогурт": "греческий йогурт",
+    # Бакалея и сладкое
+    "овсянка": "овсяные хлопья",
+    "овсяные хлопья": "овсяные хлопья",
+    "геркулес": "овсяные хлопья",
+    "паста": "макароны",
+    "макароны": "макароны",
+    "нутелла": "шоколадная паста",
+    "шоколадная паста": "шоколадная паста",
+    "хлеб": "хлеб",
+    "тостовый хлеб": "хлеб",
+    "батон": "хлеб",
+    "лаваш": "лаваш",
+    "тортилья": "лаваш",
+    "масло": "растительное масло",
+    "подсолнечное масло": "растительное масло",
+    "оливковое масло": "растительное масло",
+    "растительное масло": "растительное масло",
+    "тунец": "консервированный тунец",
+    "консервированный тунец": "консервированный тунец",
+    "фасоль": "консервированная фасоль",
+    "консервированная фасоль": "консервированная фасоль",
+    "ананас": "консервированные ананасы",
+    "ананасы": "консервированные ананасы",
+    "консервированные ананасы": "консервированные ананасы",
+}
+
 
 class Recipe:
     def __init__(self, name, ingredients, steps, time, equipment, nutrition, tags):
         self.name = str(name)
         self.ingredients = ingredients
+        self.norm_ingredients = {normalize_ingredients(i) for i in self.ingredients}
         self.steps = list(steps)
         self.time = int(time)
-        self.equipment = equipment
+        self.equipment = list(equipment)
         self.nutrition = dict(nutrition)
         self.tags = list(tags)
         self.id = hashlib.md5(str(name).encode("utf-8")).hexdigest()[:8]
 
     def match(self, own_ingredients):
-        matches = 0
-        for ingr in own_ingredients:
-            if ingr.lower() in self.ingredients:
-                matches += 1
-        return matches
+        own_norm = {normalize_ingredients(i) for i in own_ingredients if i.strip()}
+        return len(self.norm_ingredients & own_norm)
 
     def match_equipment(self, own_equipment):
-        own = [e.lower() for e in own_equipment]
-        return sum(1 for eq in self.equipment if eq.lower() in own)
+        own = [e.strip().lower().replace("ё", "ё") for e in own_equipment if e.strip()]
+
+        matches = 0
+        for eq in self.equipment:
+            clean_eq = eq.strip().lower().replace("ё", "е")
+            if clean_eq in own:
+                matches += 1
+
+        return matches
+
 
     def beauty_text(self):
         steps_text = ""
@@ -65,6 +130,13 @@ def load_recipes(path=os.path.join(BASE_DIR, "recipes.json")):
         )
         recipes.append(recipe)
     return recipes
+
+
+def normalize_ingredients(text:str) -> str:
+    cleaned_ingredient = " ".join(text.lower().replace("ё", "е").split())
+    if cleaned_ingredient in SYNONYMS:
+        return SYNONYMS[cleaned_ingredient]
+    return cleaned_ingredient
 
 
 def recipes_counter(path=os.path.join(BASE_DIR, "recipes.json")):
